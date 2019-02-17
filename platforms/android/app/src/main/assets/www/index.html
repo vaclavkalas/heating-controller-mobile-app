@@ -1,71 +1,85 @@
 <!DOCTYPE html>
-<html>
 
-<head>
+<section>
+    <h2>Status</h2>
 
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, user-scalable=no,
-		shrink-to-fit=no, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0" />
+    <p>Connected: <code id="connection-status">false</code> <button id="connect-button">connect</button></p>
+    <p>Status: <pre><code id="thermostat-status">null</code></pre> <button id="get-status-button">get</button></p>
+</section>
 
-    <title>BLE Scan</title>
+<section>
+    <h2>Commands</h2>
 
-    <style>
-        @import 'ui/css/evothings-app.css';
-    </style>
+    <p>Set Target Temperature: <input type="number" id="target-temperature" step="0.5" value="20.0" /> <button id="set-target-temperature-button">set</button></p>
+    <p>Boost: <button id="enable-boost-button">enable</button> <button id="disable-boost-button">disable</button></p>
+</section>
 
-    <script>
-        // Redirect console.log to Evothings Workbench.
-        if (window.hyper && window.hyper.log) { console.log = hyper.log }
-    </script>
+<script type="module">
+    import { serviceUuid, getStatus, setTargetTemperature, setBoost } from "/js/thermostat.js";
 
-</head>
+    const $ = document.getElementById.bind(document);
+    let device = null;
+    let status = null;
+    let inProgress = false;
 
-<body ontouchstart=""><!-- ontouchstart="" enables low-delay CSS transitions. -->
+    function render() {
+        $("connection-status").textContent = device !== null;
+        $("connection-status").disabled = inProgress;
 
-<header>
-    <button class="back" onclick="history.back()">
-        <img src="ui/images/arrow-left.svg" />
-    </button>
+        $("thermostat-status").textContent = JSON.stringify(status, null, "\t");
+        $("get-status-button").disabled = inProgress || device === null;
 
-    <img class="logotype" src="ui/images/logo.svg" alt="Evothings" />
+        $("set-target-temperature-button").disabled = inProgress;
+        $("enable-boost-button").disabled = inProgress || device === null;
+        $("disable-boost-button").disabled = inProgress || device === null;
+    }
 
-    <button id="menu-button" tabindex="0" onclick="this.focus()">
-        <img src="ui/images/menu.svg" />
-    </button>
+    function wrapProgress(fn) {
+        return (...args) => {
+            if (inProgress) return;
 
-    <menu>
-        <menuitem>
-            <a href="#">Home</a>
-        </menuitem>
+            inProgress = true;
+            render();
 
-        <menuitem>
-            <a href="#troubleshooting">Troubleshooting</a>
-        </menuitem>
-    </menu>
-</header>
+            fn(...args).then(() => {
+                inProgress = false;
+                render();
+            }).catch(e => {
+                inProgress = false;
+                alert(e.message);
+                render();
+                throw e;
+            });
+        };
+    }
 
-<h1>BLE Scan</h1>
+    $("connect-button").addEventListener("click", wrapProgress(async () => {
+        device = await navigator.bluetooth.requestDevice({
+            filters: [ { name: "CC-RT-BLE" } ],
+            optionalServices: [ serviceUuid ],
+        });
+    }));
 
-<button onclick="app.ui.onStartScanButton()" class="green">
-    START SCANc
-</button>
+    $("get-status-button").addEventListener("click", wrapProgress(async () => {
+        status = await getStatus(device);
+    }));
 
-<button onclick="app.ui.onStopScanButton()" class="charcoal">
-    STOP SCAN
-</button>
+    $("set-target-temperature-button").addEventListener("click", wrapProgress(async () => {
+        let targetTemperature = parseFloat($("target-temperature").value);
 
-<p id="scan-status">Scanning Paused</p>
+        if (targetTemperature < 4.5 || targetTemperature > 30)
+            throw new Error("target temperature has to be between 4.5 and 30.0 in 0.5 steps");
 
-<ul id="found-devices" class="dynamic"></ul>
+        status = await setTargetTemperature(device, targetTemperature);
+    }));
 
-<p id="message"></p>
+    $("enable-boost-button").addEventListener("click", wrapProgress(async () => {
+        status = await setBoost(device, true);
+    }));
 
-<script src="cordova.js"></script>
-<script src="libs/jquery/jquery.js"></script>
-<script src="libs/evothings/evothings.js"></script>
-<script src="libs/evothings/ui/ui.js"></script>
-<script src="js/index.js"></script>
+    $("disable-boost-button").addEventListener("click", wrapProgress(async () => {
+        status = await setBoost(device, false);
+    }));
 
-</body>
-
-</html>
+    render();
+</script>
